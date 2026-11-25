@@ -56,7 +56,8 @@
     return S.items.filter(function (i) { return i.active !== false }).map(function (item) {
       var last = lastRecord(item.id)
       var cycle = item.customCycleDays || 7
-      var lastAt = last ? last.checkedAt : (item.createdAt || Date.now())
+      // 有打卡记录用最近一次；否则用用户填的"上次浇水日期"；再否则用添加日
+      var lastAt = last ? last.checkedAt : (item.lastWateredAt || item.createdAt || Date.now())
       var nextAt = lastAt + cycle * 86400000
       var dueDays = Math.ceil((nextAt - Date.now()) / 86400000)
       var o = Object.assign({}, item, { lastAt: lastAt, nextAt: nextAt, cycle: cycle, dueDays: dueDays, overdue: dueDays < 0 })
@@ -247,7 +248,7 @@
     }
     if (item.infoSource) h += '<div class="muted" style="margin-top:8px">信息来源：' + ({ builtin: '内置花卉库', inaturalist: '🌐 iNaturalist', perenual: '🌐 Perenual', ai: '🤖 AI 识别' }[item.infoSource] || item.infoSource) + '</div>'
     if (item.wiki) h += '<div style="margin-top:8px"><a href="' + esc(item.wiki) + '" target="_blank" rel="noopener" class="muted">🔗 查看植物百科</a></div>'
-    h += '<div class="divider"></div><div class="row between"><span>上次浇水</span><span>' + fmt(last ? last.checkedAt : item.createdAt, true) + '</span></div>'
+    h += '<div class="divider"></div><div class="row between"><span>上次浇水</span><span>' + fmt(last ? last.checkedAt : (item.lastWateredAt || item.createdAt), true) + '</span></div>'
     h += '<div class="row between" style="margin-top:8px"><span>累计打卡</span><span>' + recs.length + ' 次</span></div>'
     h += '<div class="divider"></div><div class="title" style="margin-bottom:8px">浇水记录</div>'
     if (!recs.length) h += '<div class="muted">还没有记录</div>'
@@ -275,11 +276,10 @@
     var h = '<h3>' + (item ? '编辑花草' : '添加花草') + '</h3>'
     h += '<div class="form-item"><span class="label">照片</span><div class="photo-row">' +
       '<img id="editAvatar" class="photo" style="display:' + (f.avatar ? 'block' : 'none') + '" src="' + esc(f.avatar) + '" />' +
-      '<div class="photo-add" id="pickCamera" title="拍照">📷</div>' +
-      '<div class="photo-add" id="pickAlbum" title="从相册选">🖼️</div></div>' +
+      '<div class="photo-add" id="pickPhoto" title="添加照片">＋</div></div>' +
       '<input type="file" id="cameraFile" accept="image/*" capture="environment" style="display:none" />' +
       '<input type="file" id="albumFile" accept="image/*" style="display:none" />' +
-      '<div class="muted" style="margin-top:6px">📷 拍照 · 🖼️ 从相册选（两个独立按钮）；拍完照可点「AI 识别」自动填花名</div>' +
+      '<div class="muted" style="margin-top:6px">点 ＋ 选择拍照或从相册选；选完可点「AI 识别」自动填花名</div>' +
       '<button class="btn btn-ghost" id="btnAiRecognize" style="margin-top:8px">🤖 AI 识别照片中的植物</button>' +
       '<div class="muted" id="aiResult" style="margin-top:8px;display:none"></div></div>'
     h += '<div class="form-item"><span class="label">名称 *</span><input class="input" id="fName" value="' + esc(f.name) + '" placeholder="例如：客厅的绿萝" /></div>'
@@ -288,6 +288,10 @@
       '<div class="muted" id="searchHint" style="margin-top:6px">内置花卉库离线可用；联网可获取更多信息' + (ONLINE && ONLINE.hasKey() ? '（已配置 Perenual，含浇水频次）' : '') + '</div>' +
       '<div id="plantResults" class="plant-list" style="display:none"></div></div>'
     h += '<div class="form-item"><span class="label">浇水周期（天）</span><input class="input" id="fCycle" type="number" min="1" value="' + (f.customCycleDays || 7) + '" /></div>'
+    var lastWatered = f.lastWateredAt ? fmt(f.lastWateredAt) : (f.createdAt ? fmt(f.createdAt) : '')
+    h += '<div class="form-item"><span class="label">上次浇水日期' + (id ? '' : '（不填则从添加日算起）') + '</span>' +
+      '<input class="input" id="fLastWatered" type="date" value="' + esc(lastWatered) + '" />' +
+      '<div class="muted" style="margin-top:6px">' + (id ? '改这里会重置浇水倒计时' : '填写真实的上次浇水日期，待办会据此计算；留空则默认今天。') + '</div></div>'
     h += '<div class="form-item"><span class="label">位置（可选）</span><input class="input" id="fLocation" value="' + esc(f.location || '') + '" placeholder="例如：阳台" /></div>'
     if (ONLINE && !ONLINE.hasKey()) {
       h += '<div class="form-item"><span class="label">🌐 高级：填入 Perenual 免费 API Key（可选）</span>' +
@@ -300,16 +304,33 @@
     bindEditSearch()
   }
 
-  // 照片选择 + AI 识别（拍照 / 相册两个独立入口）
+  // 底部选择菜单（拍照 / 相册）
+  function showPhotoSheet(cbCamera, cbAlbum) {
+    var sheet = document.getElementById('actionSheet')
+    if (!sheet) return
+    sheet.style.display = 'flex'
+    function close() {
+      sheet.style.display = 'none'
+      document.getElementById('sheetCamera').onclick = null
+      document.getElementById('sheetAlbum').onclick = null
+      document.getElementById('sheetCancel').onclick = null
+      sheet.onclick = null
+    }
+    document.getElementById('sheetCamera').onclick = function () { close(); cbCamera() }
+    document.getElementById('sheetAlbum').onclick = function () { close(); cbAlbum() }
+    document.getElementById('sheetCancel').onclick = close
+    sheet.onclick = function (e) { if (e.target === sheet) close() }
+  }
+
+  // 照片选择 + AI 识别（统一 ＋ 号，弹出拍照/相册选择菜单）
   function bindEditPhoto() {
     var cameraInput = document.getElementById('cameraFile')
     var albumInput = document.getElementById('albumFile')
-    var pickCamera = document.getElementById('pickCamera')
-    var pickAlbum = document.getElementById('pickAlbum')
+    var pickPhoto = document.getElementById('pickPhoto')
     var aiBtn = document.getElementById('btnAiRecognize')
     var resultBox = document.getElementById('aiResult')
 
-    if (!pickCamera || !pickAlbum || !cameraInput || !albumInput) return
+    if (!pickPhoto || !cameraInput || !albumInput) return
 
     function handleFile(file) {
       if (!file) return
@@ -321,15 +342,12 @@
       })
     }
 
-    // 📷 拍照：带 capture 直接调相机
-    pickCamera.onclick = function () {
-      cameraInput.value = ''
-      cameraInput.click()
-    }
-    // 🖼️ 相册：不带 capture，打开照片图库
-    pickAlbum.onclick = function () {
-      albumInput.value = ''
-      albumInput.click()
+    // ＋ 号：弹出选择菜单
+    pickPhoto.onclick = function () {
+      showPhotoSheet(
+        function () { cameraInput.value = ''; cameraInput.click() },
+        function () { albumInput.value = ''; albumInput.click() }
+      )
     }
     cameraInput.onchange = function () { handleFile(cameraInput.files[0]) }
     albumInput.onchange = function () { handleFile(albumInput.files[0]) }
@@ -507,7 +525,8 @@
     var item = S.items.filter(function (i) { return i.id === id })[0]
     if (!item) return
     var last = lastRecord(id)
-    var days = last ? Math.max(0, daysBetween(last.checkedAt, Date.now())) : 0
+    var lastAt = last ? last.checkedAt : (item.lastWateredAt || item.createdAt)
+    var days = lastAt ? Math.max(0, daysBetween(lastAt, Date.now())) : 0
     var h = '<h3>给「' + esc(item.name) + '」浇水</h3>'
     h += '<div class="muted">已 ' + days + ' 天没浇水啦</div>'
     h += '<div class="form-item" style="margin-top:14px"><span class="label">拍张照片（可选）</span><div class="photo-row" id="ciPhotos">' +
@@ -691,6 +710,12 @@
           perenualId: draft.perenualId || old.perenualId || null,
           info: draft.info || old.info || null,
           family: draft.family || old.family || '',
+          lastWateredAt: (function () {
+            var el = document.getElementById('fLastWatered')
+            if (!el || !el.value) return old.lastWateredAt || null
+            var t = new Date(el.value + 'T12:00:00').getTime()
+            return isNaN(t) ? null : t
+          })(),
           updatedAt: Date.now()
         }
         if (id) {

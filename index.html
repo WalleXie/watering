@@ -36,6 +36,15 @@
 
   <!-- 弹层容器 -->
   <div id="modalRoot"></div>
+  <!-- 底部选择菜单（拍照/相册） -->
+  <div id="actionSheet" class="sheet-mask" style="display:none">
+    <div class="sheet">
+      <div class="sheet-title">选择照片来源</div>
+      <button class="sheet-item" id="sheetCamera">📷 拍照</button>
+      <button class="sheet-item" id="sheetAlbum">🖼️ 从相册选择</button>
+      <button class="sheet-item sheet-cancel" id="sheetCancel">取消</button>
+    </div>
+  </div>
   <div id="toast" class="toast"></div>
 
   <script src="store.js"></script>
