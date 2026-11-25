@@ -225,8 +225,8 @@
     h += '<div class="form-item"><span class="label">照片</span><div class="photo-row">' +
       '<img id="editAvatar" class="photo" style="display:' + (f.avatar ? 'block' : 'none') + '" src="' + esc(f.avatar) + '" />' +
       '<div class="photo-add" id="pickAvatar">＋</div></div>' +
-      '<input type="file" id="avatarFile" accept="image/*" capture="environment" style="display:none" />' +
-      '<div class="muted" style="margin-top:6px">点 ＋ 拍照或从相册选；也可拍照后点「AI 识别」自动填花名</div>' +
+      '<input type="file" id="avatarFile" accept="image/*" style="display:none" />' +
+      '<div class="muted" style="margin-top:6px">点 ＋ 后选「拍照」或「照片图库」；也可拍照后点「AI 识别」自动填花名</div>' +
       '<button class="btn btn-ghost" id="btnAiRecognize" style="margin-top:8px">🤖 AI 识别照片中的植物</button>' +
       '<div class="muted" id="aiResult" style="margin-top:8px;display:none"></div></div>'
     h += '<div class="form-item"><span class="label">名称 *</span><input class="input" id="fName" value="' + esc(f.name) + '" placeholder="例如：客厅的绿萝" /></div>'
@@ -266,12 +266,10 @@
       })
     }
 
-    // 点 ＋ 触发文件选择；capture 让手机直接调相机
+    // 点 ＋ 触发文件选择：不设 capture，iOS 会弹出「拍照 / 照片图库」菜单，两者都可选
     pick.onclick = function () {
-      if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) {
-        // 手机端：优先调用相机
-        fileInput.setAttribute('capture', 'environment')
-      }
+      fileInput.removeAttribute('capture')
+      fileInput.value = ''   // 允许重复选同一张图
       fileInput.click()
     }
     fileInput.onchange = function () { handleFile(fileInput.files[0]) }
