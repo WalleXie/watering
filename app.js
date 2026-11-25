@@ -13,7 +13,7 @@
   var modalRoot = document.getElementById('modalRoot')
   var toastEl = document.getElementById('toast')
 
-  var TITLES = { home: '🌿 浇花打卡', calendar: '📅 日历', stats: '📊 统计', settings: '⚙️ 设置' }
+  var TITLES = { home: '🌿 浇花打卡', plants: '🌿 我的花草', calendar: '📅 日历', stats: '📊 统计', settings: '⚙️ 设置' }
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -38,6 +38,19 @@
     return Store.save(S, label).then(function () { render() })
   }
 
+  // 关键信息卡片（识别/选择花草后展示）
+  function infoCard(p) {
+    var info = p.info || {}
+    var rows = ''
+    if (p.family || info.family) rows += '<div>科属：' + esc(p.family || info.family) + '</div>'
+    rows += '<div>浇水：建议每 ' + (p.cycle || 7) + ' 天一次' + (info.extra ? ' · ' + esc(info.extra) : '') + '</div>'
+    if (p.light || info.light) rows += '<div>光照：' + esc(p.light || info.light) + '</div>'
+    if (p.toxic || info.toxic) rows += '<div>毒性：' + esc(p.toxic || info.toxic) + '</div>'
+    var head = '✅ 识别为 <b>' + esc(p.name || '未知植物') + '</b>'
+    if (typeof p.confidence === 'number') head += ' · 置信度 ' + Math.round(p.confidence * 100) + '%'
+    return '<div style="background:var(--primary-light);border-radius:10px;padding:12px;line-height:1.8;font-size:13px">' + head + '<div class="divider" style="margin:8px 0"></div>' + rows + '</div>'
+  }
+
   // ---------- 派生 ----------
   function pending() {
     return S.items.filter(function (i) { return i.active !== false }).map(function (item) {
@@ -46,7 +59,7 @@
       var lastAt = last ? last.checkedAt : (item.createdAt || Date.now())
       var nextAt = lastAt + cycle * 86400000
       var dueDays = Math.ceil((nextAt - Date.now()) / 86400000)
-      var o = Object.assign({}, item, { lastAt: lastAt, nextAt: nextAt, cycle: cycle, dueDays: dueDays, overdue: dueDays <= 0 })
+      var o = Object.assign({}, item, { lastAt: lastAt, nextAt: nextAt, cycle: cycle, dueDays: dueDays, overdue: dueDays < 0 })
       return o
     }).sort(function (a, b) { return a.dueDays - b.dueDays })
   }
@@ -62,7 +75,29 @@
     return n
   }
 
-  // ---------- 视图：首页 ----------
+  // 生成一张花草卡片（首页/花草列表通用）
+  function flowerCard(p, opts) {
+    opts = opts || {}
+    var tag = p.overdue ? '<span class="tag tag-danger">逾期 ' + Math.abs(p.dueDays) + ' 天</span>'
+      : (p.dueDays === 0 ? '<span class="tag tag-warn">今天该浇了</span>' : '<span class="tag">' + p.dueDays + ' 天后</span>')
+    var h = '<div class="card" data-open="' + esc(p.id) + '"><div class="row">' +
+      (p.avatar ? '<img class="avatar" src="' + esc(p.avatar) + '" />' : '<div class="avatar"></div>') +
+      '<div class="col flex1"><div class="row between"><span class="title">' + esc(p.name) + '</span>' + tag + '</div>' +
+      '<div class="muted">上次：' + fmt(p.lastAt) + ' · 每 ' + p.cycle + ' 天</div>' +
+      (opts.showNext !== false ? '<div class="muted">下次浇水：' + fmt(p.nextAt) + '</div>' : '') +
+      '</div></div>'
+    if (opts.actions !== false) {
+      h += '<div class="divider"></div><div class="row between"><span class="muted">下次建议 ' + fmt(p.nextAt) + '</span>' +
+        '<div class="row" style="gap:8px">' +
+        '<button class="btn btn-ghost" data-edit="' + esc(p.id) + '">编辑</button>' +
+        '<button class="btn btn-primary" data-checkin="' + esc(p.id) + '">浇水打卡</button></div></div>' +
+        '<div class="row" style="justify-content:flex-end;margin-top:8px">' +
+        '<button class="muted" data-del="' + esc(p.id) + '" style="background:none;border:none;font-size:12px">删除</button></div>'
+    }
+    return h + '</div>'
+  }
+
+  // ---------- 视图：首页（按日期分组：近三天 + 逾期） ----------
   function viewHome() {
     var list = pending()
     var h = ''
@@ -72,22 +107,34 @@
     h += '<div class="card summary"><div class="col"><div class="title">我的花草</div><div class="muted">共 ' + S.items.length + ' 盆 · 待办 ' + list.length + ' 项</div></div>' +
       '<div class="stat-grid"><div><div class="stat-num">' + streak() + '</div><div class="muted">连续天数</div></div>' +
       '<div><div class="stat-num">' + S.records.length + '</div><div class="muted">累计打卡</div></div></div></div>'
-    h += '<div class="section-title">待浇水</div>'
-    if (!list.length) h += '<div class="card empty">还没有花草，点右下角 ＋ 添加吧 🌱</div>'
-    list.forEach(function (p) {
-      var tag = p.overdue ? '<span class="tag tag-danger">逾期 ' + Math.abs(p.dueDays) + ' 天</span>'
-        : (p.dueDays === 0 ? '<span class="tag tag-warn">今天该浇了</span>' : '<span class="tag">' + p.dueDays + ' 天后</span>')
-      h += '<div class="card" data-open="' + esc(p.id) + '"><div class="row">' +
-        (p.avatar ? '<img class="avatar" src="' + esc(p.avatar) + '" />' : '<div class="avatar"></div>') +
-        '<div class="col flex1"><div class="row between"><span class="title">' + esc(p.name) + '</span>' + tag + '</div>' +
-        '<div class="muted">上次：' + fmt(p.lastAt) + ' · 每 ' + p.cycle + ' 天</div></div></div>' +
-        '<div class="divider"></div><div class="row between"><span class="muted">下次建议 ' + fmt(p.nextAt) + '</span>' +
-        '<div class="row" style="gap:8px">' +
-        '<button class="btn btn-ghost" data-edit="' + esc(p.id) + '">编辑</button>' +
-        '<button class="btn btn-primary" data-checkin="' + esc(p.id) + '">浇水打卡</button></div></div>' +
-        '<div class="row" style="justify-content:flex-end;margin-top:8px">' +
-        '<button class="muted" data-del="' + esc(p.id) + '" style="background:none;border:none;font-size:12px">删除</button></div></div>'
+
+    // 分组：逾期 / 今天 / 明天 / 后天 / 更晚
+    var groups = [
+      { key: 'overdue', label: '⚠️ 已逾期（该浇水了）', test: function (p) { return p.overdue } },
+      { key: 'today', label: '📌 今天 (' + fmt(Date.now()) + ')', test: function (p) { return !p.overdue && p.dueDays === 0 } },
+      { key: 'tomorrow', label: '🗓 明天 (' + fmt(Date.now() + 86400000) + ')', test: function (p) { return p.dueDays === 1 } },
+      { key: 'dayafter', label: '🗓 后天 (' + fmt(Date.now() + 2 * 86400000) + ')', test: function (p) { return p.dueDays === 2 } },
+      { key: 'later', label: '🌱 更晚（3 天后及以上）', test: function (p) { return p.dueDays >= 3 } }
+    ]
+    h += '<div class="section-title">待浇水（按日期）</div>'
+    var any = false
+    groups.forEach(function (g) {
+      var items = list.filter(g.test)
+      if (!items.length) return
+      any = true
+      h += '<div class="section-title" style="font-size:14px;color:var(--primary)">' + g.label + ' · ' + items.length + ' 盆</div>'
+      items.forEach(function (p) { h += flowerCard(p) })
     })
+    if (!any) h += '<div class="card empty">还没有花草，点右下角 ＋ 添加吧 🌱</div>'
+    return h
+  }
+
+  // ---------- 视图：花草列表 ----------
+  function viewPlants() {
+    var list = pending()
+    var h = '<div class="section-title">全部花草（共 ' + list.length + ' 盆）</div>'
+    if (!list.length) return h + '<div class="card empty">还没有花草，点右下角 ＋ 添加吧 🌱</div>'
+    list.forEach(function (p) { h += flowerCard(p, { showNext: true }) })
     return h
   }
 
@@ -193,8 +240,12 @@
       '<div class="col flex1"><div class="muted">' + esc(item.species || '未填写品种') + '</div>' +
       (item.scientific ? '<div class="muted">' + esc(item.scientific) + '</div>' : '') +
       '<div class="muted" style="margin-top:6px">每 ' + cycle + ' 天浇一次</div></div></div>'
-    if (item.tip) h += '<div class="tag" style="display:inline-block;margin-top:10px">' + esc(item.tip) + '</div>'
-    if (item.infoSource) h += '<div class="muted" style="margin-top:8px">信息来源：' + (item.infoSource === 'builtin' ? '内置花卉库' : item.infoSource === 'inaturalist' ? '🌐 iNaturalist' : '🌐 Perenual') + '</div>'
+    if (item.info || item.family) {
+      h += '<div style="margin-top:12px">' + infoCard({ name: item.name, family: item.family, cycle: cycle, info: item.info }) + '</div>'
+    } else if (item.tip) {
+      h += '<div class="tag" style="display:inline-block;margin-top:10px">' + esc(item.tip) + '</div>'
+    }
+    if (item.infoSource) h += '<div class="muted" style="margin-top:8px">信息来源：' + ({ builtin: '内置花卉库', inaturalist: '🌐 iNaturalist', perenual: '🌐 Perenual', ai: '🤖 AI 识别' }[item.infoSource] || item.infoSource) + '</div>'
     if (item.wiki) h += '<div style="margin-top:8px"><a href="' + esc(item.wiki) + '" target="_blank" rel="noopener" class="muted">🔗 查看植物百科</a></div>'
     h += '<div class="divider"></div><div class="row between"><span>上次浇水</span><span>' + fmt(last ? last.checkedAt : item.createdAt, true) + '</span></div>'
     h += '<div class="row between" style="margin-top:8px"><span>累计打卡</span><span>' + recs.length + ' 次</span></div>'
@@ -220,7 +271,7 @@
   function openEdit(id) {
     var item = id ? S.items.filter(function (i) { return i.id === id })[0] : null
     var f = item || { name: '', species: '', avatar: '', customCycleDays: 7, location: '', tip: '', infoSource: '' }
-    draft = { tip: f.tip || '', avatar: f.avatar || '', photo: '', scientific: f.scientific || '', infoSource: f.infoSource || '', wiki: f.wiki || '', perenualId: f.perenualId || null }
+    draft = { tip: f.tip || '', avatar: f.avatar || '', photo: '', scientific: f.scientific || '', infoSource: f.infoSource || '', wiki: f.wiki || '', perenualId: f.perenualId || null, info: f.info || null, family: f.family || '' }
     var h = '<h3>' + (item ? '编辑花草' : '添加花草') + '</h3>'
     h += '<div class="form-item"><span class="label">照片</span><div class="photo-row">' +
       '<img id="editAvatar" class="photo" style="display:' + (f.avatar ? 'block' : 'none') + '" src="' + esc(f.avatar) + '" />' +
@@ -303,7 +354,7 @@
             if (resultBox) { resultBox.style.display = 'block'; resultBox.innerHTML = '❌ ' + esc(r.error) }
             return
           }
-          // 自动填入
+          // 自动填入中文花名 + 关键信息
           var nameInput = document.getElementById('fName')
           var speciesInput = document.getElementById('fSpecies')
           if (!nameInput.value.trim() && r.name !== '未知植物') nameInput.value = r.name
@@ -312,12 +363,18 @@
           draft.tip = r.care || ''
           draft.scientific = r.scientific || ''
           draft.infoSource = 'ai'
+          draft.info = r.info || null
           if (resultBox) {
             resultBox.style.display = 'block'
-            resultBox.innerHTML = '✅ 识别为 <b>' + esc(r.name) + '</b> · 置信度 ' + Math.round(r.confidence * 100) + '% · 建议每 ' + r.cycle + ' 天浇水。名称/品种/周期已自动填入，可手动修改。'
+            resultBox.innerHTML = infoCard(r) + '<div class="muted" style="margin-top:6px">名称/品种/周期已自动填入，可手动修改。</div>'
           }
-          // 用识别到的名字联网补充百科信息
-          if (r.name !== '未知植物' && ONLINE) {
+          // 用识别到的中文名找内置库，补充权威关键信息；找不到再联网
+          var builtin = Plants.getByName ? Plants.getByName(r.name) : null
+          if (builtin) {
+            draft.info = builtin.info || draft.info
+            draft.tip = builtin.tip || draft.tip
+            if (resultBox) resultBox.innerHTML = infoCard(Object.assign({}, r, { info: builtin.info || r.info, cycle: builtin.cycle || r.cycle })) + '<div class="muted" style="margin-top:6px">📚 已从内置中文花卉库补充权威信息。</div>'
+          } else if (r.name !== '未知植物' && ONLINE) {
             ONLINE.search(r.name).then(function (list) {
               if (!list || !list.length) return
               var p = list[0]
@@ -368,7 +425,7 @@
       if (!kw) { results.style.display = 'none'; return }
       // 1) 立即显示内置库结果（离线）
       var local = (window.WateringPlants.search(kw) || []).map(function (p) {
-        return { name: p.name, scientific: p.scientific, cycle: p.cycle, tip: p.tip, source: 'builtin' }
+        return { name: p.name, scientific: p.scientific, cycle: p.cycle, tip: p.tip, info: p.info, source: 'builtin' }
       })
       renderResults(local, 0)
       if (hint) hint.textContent = '内置结果已显示，正在联网补充…'
@@ -404,6 +461,14 @@
       draft.infoSource = p.source || ''
       draft.wiki = p.wiki || ''
       draft.perenualId = p.id || null
+      draft.info = p.info || null
+      draft.family = (p.info && p.info.family) || ''
+      // 选中后在弹层展示关键信息卡
+      var rc = document.getElementById('aiResult')
+      if (rc && (draft.info || p.cycle)) {
+        rc.style.display = 'block'
+        rc.innerHTML = infoCard({ name: p.name, cycle: p.cycle, info: draft.info, confidence: null }) + '<div class="muted" style="margin-top:6px">已选择「' + esc(p.name) + '」，周期和关键信息已填入。</div>'
+      }
       // 注意：联网图片是外部 URL，离线会破图，因此只作参考不设为头像；头像仍用自己拍摄的照片
       // Perenual 结果可进一步拉详情，拿精确天数
       if (p.source === 'perenual' && p.id && ONLINE.hasKey()) {
@@ -529,10 +594,11 @@
   function render() {
     titleEl.textContent = TITLES[currentTab]
     var html = currentTab === 'home' ? viewHome()
-      : currentTab === 'calendar' ? viewCalendar()
-        : currentTab === 'stats' ? viewStats() : viewSettings()
+      : currentTab === 'plants' ? viewPlants()
+        : currentTab === 'calendar' ? viewCalendar()
+          : currentTab === 'stats' ? viewStats() : viewSettings()
     main.innerHTML = html
-    fab.style.display = currentTab === 'home' ? 'block' : 'none'
+    fab.style.display = (currentTab === 'home' || currentTab === 'plants') ? 'block' : 'none'
     document.querySelectorAll('#tabbar button').forEach(function (b) {
       b.classList.toggle('active', b.getAttribute('data-tab') === currentTab)
     })
@@ -623,6 +689,8 @@
           infoSource: draft.infoSource || old.infoSource || '',
           wiki: draft.wiki || old.wiki || '',
           perenualId: draft.perenualId || old.perenualId || null,
+          info: draft.info || old.info || null,
+          family: draft.family || old.family || '',
           updatedAt: Date.now()
         }
         if (id) {

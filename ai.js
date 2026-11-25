@@ -51,11 +51,12 @@
     var cfg = config()
     if (!cfg.key) return Promise.resolve({ ok: false, error: '请先在设置里填写 AI API Key' })
 
-    var prompt = '你是一位植物学家。请识别照片中的植物，并用严格的 JSON 格式回答（不要输出其他文字）。' +
-      '字段：name(中文常用名，字符串)、scientific(拉丁学名，字符串)、confidence(置信度0-1，数字)、' +
-      'cycle(建议浇水周期天数，整数)、care(简短养护建议，中文，50字以内)。' +
+    var prompt = '你是一位中国植物学家。请识别照片中的植物，用中文回答，并用严格的 JSON 格式（不要输出其他文字）。' +
+      '字段：name(中文常用名，必须是中文)、scientific(拉丁学名)、confidence(置信度0-1数字)、' +
+      'family(科名，中文)、cycle(建议浇水周期天数，整数)、light(光照需求，中文简短)、' +
+      'toxic(是否有毒/是否可食用，中文简短)、care(养护要点，中文50字以内)。' +
       '如果无法识别，name 填"未知植物"，confidence 填 0。' +
-      '示例：{"name":"绿萝","scientific":"Epipremnum aureum","confidence":0.9,"cycle":7,"care":"喜阴湿，土表干了再浇。"}'
+      '示例：{"name":"绿萝","scientific":"Epipremnum aureum","confidence":0.9,"family":"天南星科","cycle":7,"light":"耐阴，散射光","toxic":"汁液微毒，避免误食","care":"土表干了再浇，冬季减少。"}'
 
     var body = {
       model: cfg.model,
@@ -88,8 +89,17 @@
           name: parsed.name || '未知植物',
           scientific: parsed.scientific || '',
           confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0,
+          family: parsed.family || '',
           cycle: parseInt(parsed.cycle, 10) || 7,
+          light: parsed.light || '',
+          toxic: parsed.toxic || '',
           care: parsed.care || '',
+          info: {
+            family: parsed.family || '',
+            light: parsed.light || '',
+            toxic: parsed.toxic || '',
+            extra: parsed.care || ''
+          },
           raw: content
         })
       }).catch(function (e) {
