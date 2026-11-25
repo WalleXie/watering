@@ -168,8 +168,17 @@
       '<div class="card"><div class="title">历史快照</div><div class="divider"></div>' +
       '<div class="muted">每次改动自动生成快照，误删可回滚。</div>' +
       '<button class="btn btn-ghost btn-block" id="setSnapshots" style="margin-top:14px">🕒 查看/恢复快照</button></div>' +
+      '<div class="card"><div class="title">🤖 AI 识别配置</div><div class="divider"></div>' +
+      '<div class="muted">拍照识别花名需要视觉大模型。推荐 SiliconFlow（国内可访问，新用户有免费额度）：siliconflow.cn 注册 → API Key → 复制填入。Key 只存本机。</div>' +
+      '<div class="form-item" style="margin-top:12px"><span class="label">API Key</span>' +
+      '<input class="input" id="aiKey" type="password" value="' + esc(AI ? AI.config().key : '') + '" placeholder="sk-..." /></div>' +
+      '<div class="form-item"><span class="label">模型（可选）</span>' +
+      '<input class="input" id="aiModel" value="' + esc(AI ? AI.config().model : '') + '" placeholder="' + (AI ? esc(AI.DEFAULTS.model) : '') + '" /></div>' +
+      '<div class="form-item"><span class="label">接口地址（可选）</span>' +
+      '<input class="input" id="aiEndpoint" value="' + esc(AI ? AI.config().endpoint : '') + '" placeholder="OpenAI 兼容的 /chat/completions 地址" /></div>' +
+      '<button class="btn btn-primary btn-block" id="aiSave">保存 AI 配置</button></div>' +
       '<div class="card"><div class="title">关于</div><div class="divider"></div>' +
-      '<div class="muted">浇花打卡 PWA v1.0 · 纯本地存储 · 无需联网</div></div>'
+      '<div class="muted">浇花打卡 PWA v1.2 · 纯本地存储 · 核心功能无需联网</div></div>'
   }
 
   // ---------- 详情弹层 ----------
@@ -206,6 +215,7 @@
   // ---------- 添加/编辑弹层 ----------
   var draft = {}
   var ONLINE = window.WateringPlantApi
+  var AI = window.WateringAI
 
   function openEdit(id) {
     var item = id ? S.items.filter(function (i) { return i.id === id })[0] : null
@@ -214,7 +224,11 @@
     var h = '<h3>' + (item ? '编辑花草' : '添加花草') + '</h3>'
     h += '<div class="form-item"><span class="label">照片</span><div class="photo-row">' +
       '<img id="editAvatar" class="photo" style="display:' + (f.avatar ? 'block' : 'none') + '" src="' + esc(f.avatar) + '" />' +
-      '<div class="photo-add" id="pickAvatar">＋</div></div><input type="file" id="avatarFile" accept="image/*" style="display:none" /></div>'
+      '<div class="photo-add" id="pickAvatar">＋</div></div>' +
+      '<input type="file" id="avatarFile" accept="image/*" capture="environment" style="display:none" />' +
+      '<div class="muted" style="margin-top:6px">点 ＋ 拍照或从相册选；也可拍照后点「AI 识别」自动填花名</div>' +
+      '<button class="btn btn-ghost" id="btnAiRecognize" style="margin-top:8px">🤖 AI 识别照片中的植物</button>' +
+      '<div class="muted" id="aiResult" style="margin-top:8px;display:none"></div></div>'
     h += '<div class="form-item"><span class="label">名称 *</span><input class="input" id="fName" value="' + esc(f.name) + '" placeholder="例如：客厅的绿萝" /></div>'
     h += '<div class="form-item"><span class="label">品种 / 联网搜索</span>' +
       '<input class="input" id="fSpecies" value="' + esc(f.species) + '" placeholder="输入花名搜索，如「绿萝」或 Monstera" />' +
@@ -229,7 +243,86 @@
     }
     h += '<div class="modal-actions"><button class="btn btn-ghost" data-act="close">取消</button><button class="btn btn-primary" data-act="save" data-id="' + (id || '') + '">保存</button></div>'
     showModal(h)
+    bindEditPhoto()
     bindEditSearch()
+  }
+
+  // 照片选择 + AI 识别（修复 ＋ 号失效的 bug）
+  function bindEditPhoto() {
+    var fileInput = document.getElementById('avatarFile')
+    var pick = document.getElementById('pickAvatar')
+    var aiBtn = document.getElementById('btnAiRecognize')
+    var resultBox = document.getElementById('aiResult')
+
+    if (!pick || !fileInput) return
+
+    function handleFile(file) {
+      if (!file) return
+      compressImage(file, function (dataUrl) {
+        draft.avatar = dataUrl
+        draft._lastDataUrl = dataUrl
+        var img = document.getElementById('editAvatar')
+        img.src = dataUrl; img.style.display = 'block'
+      })
+    }
+
+    // 点 ＋ 触发文件选择；capture 让手机直接调相机
+    pick.onclick = function () {
+      if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) {
+        // 手机端：优先调用相机
+        fileInput.setAttribute('capture', 'environment')
+      }
+      fileInput.click()
+    }
+    fileInput.onchange = function () { handleFile(fileInput.files[0]) }
+
+    // AI 识别按钮
+    if (aiBtn) {
+      aiBtn.onclick = function () {
+        if (!AI) { toast('AI 模块未加载'); return }
+        if (!draft._lastDataUrl && draft.avatar) draft._lastDataUrl = draft.avatar
+        if (!draft._lastDataUrl) { toast('请先拍照或从相册选照片'); fileInput.click(); return }
+        if (!AI.configured()) {
+          toast('请先在设置里配置 AI Key')
+          if (resultBox) { resultBox.style.display = 'block'; resultBox.innerHTML = '未配置 AI Key：请到「设置 → AI 识别配置」填入免费服务商的 API Key。' }
+          return
+        }
+        aiBtn.textContent = '🤖 识别中…'
+        aiBtn.disabled = true
+        AI.recognize(draft._lastDataUrl).then(function (r) {
+          aiBtn.textContent = '🤖 AI 识别照片中的植物'
+          aiBtn.disabled = false
+          if (!r.ok) {
+            if (resultBox) { resultBox.style.display = 'block'; resultBox.innerHTML = '❌ ' + esc(r.error) }
+            return
+          }
+          // 自动填入
+          var nameInput = document.getElementById('fName')
+          var speciesInput = document.getElementById('fSpecies')
+          if (!nameInput.value.trim() && r.name !== '未知植物') nameInput.value = r.name
+          speciesInput.value = r.name
+          document.getElementById('fCycle').value = r.cycle
+          draft.tip = r.care || ''
+          draft.scientific = r.scientific || ''
+          draft.infoSource = 'ai'
+          if (resultBox) {
+            resultBox.style.display = 'block'
+            resultBox.innerHTML = '✅ 识别为 <b>' + esc(r.name) + '</b> · 置信度 ' + Math.round(r.confidence * 100) + '% · 建议每 ' + r.cycle + ' 天浇水。名称/品种/周期已自动填入，可手动修改。'
+          }
+          // 用识别到的名字联网补充百科信息
+          if (r.name !== '未知植物' && ONLINE) {
+            ONLINE.search(r.name).then(function (list) {
+              if (!list || !list.length) return
+              var p = list[0]
+              draft.scientific = draft.scientific || p.scientific || ''
+              draft.wiki = p.wiki || ''
+              if (p.source !== 'builtin') draft.infoSource = p.source
+              if (resultBox) resultBox.innerHTML += '<br>🌐 已联网补充：' + esc(p.name) + (p.wateringText ? ' · ' + esc(p.wateringText) : '')
+            })
+          }
+        })
+      }
+    }
   }
 
   function bindEditSearch() {
@@ -447,6 +540,15 @@
     if ((el = document.getElementById('setBackup'))) el.onclick = doBackup
     if ((el = document.getElementById('setImport'))) el.onclick = doImport
     if ((el = document.getElementById('setSnapshots'))) el.onclick = openSnapshots
+    if ((el = document.getElementById('aiSave'))) el.onclick = function () {
+      if (!AI) { toast('AI 模块未加载'); return }
+      AI.saveConfig({
+        key: document.getElementById('aiKey').value.trim(),
+        model: document.getElementById('aiModel').value.trim(),
+        endpoint: document.getElementById('aiEndpoint').value.trim()
+      })
+      toast('AI 配置已保存')
+    }
     main.querySelectorAll('[data-open]').forEach(function (b) {
       b.onclick = function (e) {
         if (e.target.closest('[data-checkin]')) return
