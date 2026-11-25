@@ -113,25 +113,63 @@
     }).catch(function () { return null })
   }
 
-  /* 综合搜索：两个源合并，Perenual 在前（有频次），iNat 兜底 */
+  /* 综合搜索：中文名/别名先桥接成学名或英文名，再联网搜索
+   * 解决 Perenual/iNaturalist 是英文库、中文搜不准的问题
+   */
   function search(keyword) {
     if (!keyword || !keyword.trim()) return Promise.resolve([])
-    return Promise.all([
-      searchPerenual(keyword),
-      searchINat(keyword).catch(function () { return [] })
-    ]).then(function (res) {
-      var perenual = res[0] || []
-      var inat = res[1] || []
-      // 去重：按学名/名称
+    var WP = global.WateringPlants
+    var terms = WP && WP.toSearchTerms ? WP.toSearchTerms(keyword) : [keyword.trim()]
+    if (!terms.length) terms = [keyword.trim()]
+    // 最多取前 3 个搜索词，避免请求过多
+    terms = terms.slice(0, 3)
+
+    var tasks = []
+    terms.forEach(function (t) {
+      tasks.push(searchINat(t).catch(function () { return [] }))
+      tasks.push(searchPerenual(t).catch(function () { return [] }))
+    })
+
+    return Promise.all(tasks).then(function (results) {
       var seen = {}
       var out = []
-      perenual.concat(inat).forEach(function (p) {
-        var k = (p.scientific || p.name || '').toLowerCase()
-        if (k && seen[k]) return
-        if (k) seen[k] = true
-        out.push(p)
+      // 用关键词（含中文名和学名）给结果打分，匹配度高的排前面
+      var lowerKw = String(keyword).trim().toLowerCase()
+      var termSet = terms.map(function (t) { return t.toLowerCase() })
+
+      function score(p) {
+        var sci = (p.scientific || '').toLowerCase()
+        var name = (p.name || '').toLowerCase()
+        var s = 0
+        // 学名精确命中桥接词 -> 最高分
+        termSet.forEach(function (t, i) {
+          if (sci === t) s += 100 - i
+          else if (sci.indexOf(t) >= 0) s += 50 - i
+          else if (name.indexOf(t) >= 0) s += 20 - i
+        })
+        if (sci.indexOf(lowerKw) >= 0 || name.indexOf(lowerKw) >= 0) s += 30
+        if (p.source === 'perenual') s += 10   // 有浇水频次优先
+        if (p.cycle) s += 5
+        return s
+      }
+
+      results.forEach(function (list) {
+        (list || []).forEach(function (p) {
+          var k = (p.scientific || p.name || '').toLowerCase()
+          if (!k) return
+          if (seen[k]) {
+            // 同一植物，尽量保留信息更全的那条
+            var prev = out.filter(function (o) { return (o.scientific || o.name || '').toLowerCase() === k })[0]
+            if (prev && !prev.cycle && p.cycle) { prev.cycle = p.cycle; prev.watering = p.watering || prev.watering; prev.wateringText = p.wateringText || prev.wateringText }
+            return
+          }
+          seen[k] = true
+          p._score = score(p)
+          out.push(p)
+        })
       })
-      return out
+      out.sort(function (a, b) { return (b._score || 0) - (a._score || 0) })
+      return out.slice(0, 12)
     })
   }
 

@@ -37,6 +37,88 @@
     { name: '睡莲', scientific: 'Nymphaea', cycle: 3, level: '水培', tip: '保持水位。' },
     { name: '荷花', scientific: 'Nelumbo nucifera', cycle: 3, level: '水培', tip: '保持水位。' }
   ]
+  // 常见中文别名/俗名 -> 学名（用于联网搜索桥接，提高命中率）
+  var ALIASES = {
+    '绿萝': ['Epipremnum aureum', 'Pothos', 'Devils Ivy', 'Scindapsus aureus'],
+    '吊兰': ['Chlorophytum comosum', 'Spider Plant'],
+    '富贵竹': ['Dracaena sanderiana', 'Lucky Bamboo'],
+    '多肉': ['Succulent', 'Succulents'],
+    '多肉植物': ['Succulent', 'Succulents'],
+    '仙人掌': ['Cactaceae', 'Cactus'],
+    '月季': ['Rosa chinensis', 'China Rose'],
+    '玫瑰': ['Rosa rugosa', 'Rose'],
+    '茉莉': ['Jasminum sambac', 'Jasmine'],
+    '栀子花': ['Gardenia jasminoides', 'Gardenia'],
+    '薄荷': ['Mentha canadensis', 'Mint'],
+    '发财树': ['Pachira aquatica', 'Money Tree'],
+    '金钱树': ['Zamioculcas zamiifolia', 'ZZ Plant'],
+    '幸福树': ['Radermachera sinica', 'China Doll'],
+    '平安树': ['Cinnamomum', 'Bay Laurel'],
+    '橡皮树': ['Ficus elastica', 'Rubber Plant'],
+    '龟背竹': ['Monstera deliciosa', 'Swiss Cheese Plant'],
+    '琴叶榕': ['Ficus lyrata', 'Fiddle Leaf Fig'],
+    '天堂鸟': ['Strelitzia reginae', 'Bird of Paradise'],
+    '绣球': ['Hydrangea', 'Hydrangea macrophylla'],
+    '八仙花': ['Hydrangea', 'Hydrangea macrophylla'],
+    '三角梅': ['Bougainvillea'],
+    '叶子花': ['Bougainvillea'],
+    '君子兰': ['Clivia miniata', 'Kaffir Lily'],
+    '文竹': ['Asparagus setaceus', 'Asparagus Fern'],
+    '蕨类': ['Pteridophyta', 'Fern'],
+    '空气凤梨': ['Tillandsia', 'Air Plant'],
+    '蝴蝶兰': ['Phalaenopsis', 'Moth Orchid'],
+    '石斛兰': ['Dendrobium'],
+    '薰衣草': ['Lavandula', 'Lavender'],
+    '迷迭香': ['Rosmarinus officinalis', 'Salvia rosmarinus', 'Rosemary'],
+    '芦荟': ['Aloe vera', 'Aloe'],
+    '虎皮兰': ['Sansevieria', 'Dracaena trifasciata', 'Snake Plant'],
+    '常春藤': ['Hedera helix', 'English Ivy'],
+    '白掌': ['Spathiphyllum', 'Peace Lily'],
+    '一帆风顺': ['Spathiphyllum', 'Peace Lily'],
+    '红掌': ['Anthurium', 'Flamingo Flower'],
+    '铜钱草': ['Hydrocotyle vulgaris', 'Chinese Money Plant'],
+    '睡莲': ['Nymphaea', 'Water Lily'],
+    '荷花': ['Nelumbo nucifera', 'Lotus'],
+    '莲花': ['Nelumbo nucifera', 'Lotus'],
+    '百合': ['Lilium', 'Lily'],
+    '向日葵': ['Helianthus annuus', 'Sunflower'],
+    '太阳花': ['Helianthus annuus', 'Sunflower'],
+    '多肉': ['Succulent'],
+    '竹芋': ['Calathea', 'Maranta'],
+    '龟背芋': ['Monstera deliciosa', 'Swiss Cheese Plant'],
+    '春羽': ['Philodendron selloum', 'Philodendron'],
+    '琴叶橡皮树': ['Ficus lyrata', 'Fiddle Leaf Fig'],
+    '鸭脚木': ['Schefflera', 'Umbrella Tree'],
+    '鹅掌柴': ['Schefflera', 'Umbrella Tree']
+  }
+
+  // 判断是否为中文
+  function isChinese(s) { return /[\u4e00-\u9fa5]/.test(s || '') }
+
+  // 关键词 -> 用于联网搜索的词列表（中文名转学名/英文名）
+  function toSearchTerms(keyword) {
+    var k = String(keyword || '').trim()
+    if (!k) return []
+    var terms = []
+    function add(t) { if (t && terms.indexOf(t) < 0) terms.push(t) }
+    // 1) 先查别名映射（精确/包含）
+    if (ALIASES[k]) ALIASES[k].forEach(add)
+    Object.keys(ALIASES).forEach(function (alias) {
+      if (k.indexOf(alias) >= 0 || alias.indexOf(k) >= 0) {
+        ALIASES[alias].forEach(add)
+      }
+    })
+    // 2) 内置库匹配项的学名
+    BUILTIN.forEach(function (p) {
+      if (p.name.indexOf(k) >= 0 || k.indexOf(p.name) >= 0) add(p.scientific)
+    })
+    // 3) 若输入本身就是英文/学名，直接用
+    if (!isChinese(k)) add(k)
+    // 中文没查到映射时，仍保留原词（iNaturalist 支持部分中文）
+    if (isChinese(k) && terms.length === 0) add(k)
+    return terms
+  }
+
   function search(keyword) {
     if (!keyword) return BUILTIN.slice(0, 20)
     var k = keyword.trim().toLowerCase()
@@ -44,5 +126,11 @@
       return p.name.toLowerCase().indexOf(k) >= 0 || p.scientific.toLowerCase().indexOf(k) >= 0
     })
   }
-  global.WateringPlants = { BUILTIN: BUILTIN, search: search }
+  global.WateringPlants = {
+    BUILTIN: BUILTIN,
+    ALIASES: ALIASES,
+    search: search,
+    toSearchTerms: toSearchTerms,
+    isChinese: isChinese
+  }
 })(window)

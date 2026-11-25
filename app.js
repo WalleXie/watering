@@ -224,9 +224,11 @@
     var h = '<h3>' + (item ? '编辑花草' : '添加花草') + '</h3>'
     h += '<div class="form-item"><span class="label">照片</span><div class="photo-row">' +
       '<img id="editAvatar" class="photo" style="display:' + (f.avatar ? 'block' : 'none') + '" src="' + esc(f.avatar) + '" />' +
-      '<div class="photo-add" id="pickAvatar">＋</div></div>' +
-      '<input type="file" id="avatarFile" accept="image/*" style="display:none" />' +
-      '<div class="muted" style="margin-top:6px">点 ＋ 后选「拍照」或「照片图库」；也可拍照后点「AI 识别」自动填花名</div>' +
+      '<div class="photo-add" id="pickCamera" title="拍照">📷</div>' +
+      '<div class="photo-add" id="pickAlbum" title="从相册选">🖼️</div></div>' +
+      '<input type="file" id="cameraFile" accept="image/*" capture="environment" style="display:none" />' +
+      '<input type="file" id="albumFile" accept="image/*" style="display:none" />' +
+      '<div class="muted" style="margin-top:6px">📷 拍照 · 🖼️ 从相册选（两个独立按钮）；拍完照可点「AI 识别」自动填花名</div>' +
       '<button class="btn btn-ghost" id="btnAiRecognize" style="margin-top:8px">🤖 AI 识别照片中的植物</button>' +
       '<div class="muted" id="aiResult" style="margin-top:8px;display:none"></div></div>'
     h += '<div class="form-item"><span class="label">名称 *</span><input class="input" id="fName" value="' + esc(f.name) + '" placeholder="例如：客厅的绿萝" /></div>'
@@ -247,14 +249,16 @@
     bindEditSearch()
   }
 
-  // 照片选择 + AI 识别（修复 ＋ 号失效的 bug）
+  // 照片选择 + AI 识别（拍照 / 相册两个独立入口）
   function bindEditPhoto() {
-    var fileInput = document.getElementById('avatarFile')
-    var pick = document.getElementById('pickAvatar')
+    var cameraInput = document.getElementById('cameraFile')
+    var albumInput = document.getElementById('albumFile')
+    var pickCamera = document.getElementById('pickCamera')
+    var pickAlbum = document.getElementById('pickAlbum')
     var aiBtn = document.getElementById('btnAiRecognize')
     var resultBox = document.getElementById('aiResult')
 
-    if (!pick || !fileInput) return
+    if (!pickCamera || !pickAlbum || !cameraInput || !albumInput) return
 
     function handleFile(file) {
       if (!file) return
@@ -266,20 +270,25 @@
       })
     }
 
-    // 点 ＋ 触发文件选择：不设 capture，iOS 会弹出「拍照 / 照片图库」菜单，两者都可选
-    pick.onclick = function () {
-      fileInput.removeAttribute('capture')
-      fileInput.value = ''   // 允许重复选同一张图
-      fileInput.click()
+    // 📷 拍照：带 capture 直接调相机
+    pickCamera.onclick = function () {
+      cameraInput.value = ''
+      cameraInput.click()
     }
-    fileInput.onchange = function () { handleFile(fileInput.files[0]) }
+    // 🖼️ 相册：不带 capture，打开照片图库
+    pickAlbum.onclick = function () {
+      albumInput.value = ''
+      albumInput.click()
+    }
+    cameraInput.onchange = function () { handleFile(cameraInput.files[0]) }
+    albumInput.onchange = function () { handleFile(albumInput.files[0]) }
 
     // AI 识别按钮
     if (aiBtn) {
       aiBtn.onclick = function () {
         if (!AI) { toast('AI 模块未加载'); return }
         if (!draft._lastDataUrl && draft.avatar) draft._lastDataUrl = draft.avatar
-        if (!draft._lastDataUrl) { toast('请先拍照或从相册选照片'); fileInput.click(); return }
+        if (!draft._lastDataUrl) { toast('请先拍照或从相册选照片'); albumInput.click(); return }
         if (!AI.configured()) {
           toast('请先在设置里配置 AI Key')
           if (resultBox) { resultBox.style.display = 'block'; resultBox.innerHTML = '未配置 AI Key：请到「设置 → AI 识别配置」填入免费服务商的 API Key。' }

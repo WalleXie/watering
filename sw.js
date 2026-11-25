@@ -1,5 +1,5 @@
 /* sw.js — Service Worker：离线缓存，让 PWA 可安装、断网可用 */
-var CACHE = 'watering-v3'
+var CACHE = 'watering-v4'
 var ASSETS = [
   './', './index.html', './style.css', './app.js', './store.js', './plants.js', './plantapi.js', './ai.js',
   './manifest.json', './icon-192.png', './icon-512.png'
