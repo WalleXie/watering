@@ -281,7 +281,17 @@
       '<input type="file" id="albumFile" accept="image/*" style="display:none" />' +
       '<div class="muted" style="margin-top:6px">点 ＋ 选择拍照或从相册选；选完可点「AI 识别」自动填花名</div>' +
       '<button class="btn btn-ghost" id="btnAiRecognize" style="margin-top:8px">🤖 AI 识别照片中的植物</button>' +
-      '<div class="muted" id="aiResult" style="margin-top:8px;display:none"></div></div>'
+      '<div class="muted" id="aiResult" style="margin-top:8px;display:none"></div></div>' +
+      '<div class="form-item" style="background:#F0F6FF;border-radius:12px;padding:12px">' +
+      '<span class="label">🌐 用 WorkBuddy 识别（免费、识别更准）</span>' +
+      '<div class="muted" style="line-height:1.7">① 点下面按钮复制提问词和照片 → ② 打开 WorkBuddy 粘贴发送 → ③ 把回答复制回来粘贴到下方 → ④ 点「解析并填入」</div>' +
+      '<div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">' +
+      '<button class="btn btn-ghost" id="wbCopyPrompt">复制提问词</button>' +
+      '<button class="btn btn-ghost" id="wbCopyPhoto">复制照片</button>' +
+      '<button class="btn btn-ghost" id="wbDownloadPhoto">下载照片</button></div>' +
+      '<textarea class="textarea" id="wbAnswer" placeholder="把 WorkBuddy 的回答粘贴到这里…" style="margin-top:10px"></textarea>' +
+      '<button class="btn btn-primary btn-block" id="wbParse" style="margin-top:8px">解析并填入</button>' +
+      '<div class="muted" id="wbStatus" style="margin-top:8px"></div></div>'
     h += '<div class="form-item"><span class="label">名称 *</span><input class="input" id="fName" value="' + esc(f.name) + '" placeholder="例如：客厅的绿萝" /></div>'
     h += '<div class="form-item"><span class="label">品种 / 联网搜索</span>' +
       '<input class="input" id="fSpecies" value="' + esc(f.species) + '" placeholder="输入花名搜索，如「绿萝」或 Monstera" />' +
@@ -302,6 +312,7 @@
     showModal(h)
     bindEditPhoto()
     bindEditSearch()
+    bindWorkBuddy()
   }
 
   // 底部选择菜单（拍照 / 相册）
@@ -404,6 +415,74 @@
           }
         })
       }
+    }
+  }
+
+  // ---------- WorkBuddy 辅助识别 ----------
+  function bindWorkBuddy() {
+    var WB = window.WorkingBuddy
+    if (!WB) return
+    var copyPrompt = document.getElementById('wbCopyPrompt')
+    var copyPhoto = document.getElementById('wbCopyPhoto')
+    var downloadPhoto = document.getElementById('wbDownloadPhoto')
+    var parseBtn = document.getElementById('wbParse')
+    var answerEl = document.getElementById('wbAnswer')
+    var statusEl = document.getElementById('wbStatus')
+    if (!copyPrompt || !parseBtn) return
+
+    function say(msg) { if (statusEl) statusEl.textContent = msg }
+    function applyResult(d) {
+      if (!d.ok) { say('❌ ' + (d.error || '解析失败')); return }
+      var nameInput = document.getElementById('fName')
+      var speciesInput = document.getElementById('fSpecies')
+      if (d.name) {
+        if (!nameInput.value.trim()) nameInput.value = d.name
+        speciesInput.value = d.name
+      }
+      if (d.cycle) document.getElementById('fCycle').value = d.cycle
+      draft.tip = d.care || draft.tip
+      draft.scientific = d.scientific || draft.scientific
+      draft.family = d.family || draft.family
+      draft.info = d.info || null
+      draft.infoSource = 'workbuddy'
+      // 优先用内置中文库的权威信息补充/覆盖
+      var builtin = d.name && Plants.getByName ? Plants.getByName(d.name) : null
+      if (builtin) {
+        draft.info = builtin.info || draft.info
+        draft.tip = builtin.tip || draft.tip
+        document.getElementById('fCycle').value = builtin.cycle || d.cycle
+        d.info = builtin.info || d.info
+        d.cycle = builtin.cycle || d.cycle
+      }
+      var rc = document.getElementById('aiResult')
+      if (rc) {
+        rc.style.display = 'block'
+        rc.innerHTML = infoCard({ name: d.name || '识别结果', cycle: d.cycle, info: d.info, family: d.family }) +
+          '<div class="muted" style="margin-top:6px">已从 WorkBuddy 回答填入' + (builtin ? '，并用内置中文库补充了权威信息' : '') + '，可手动修改。</div>'
+      }
+      say('✅ 已解析并填入，检查后点保存即可')
+    }
+
+    copyPrompt.onclick = function () {
+      WB.copyText(WB.buildPrompt()).then(function (ok) {
+        say(ok ? '✅ 提问词已复制，去 WorkBuddy 粘贴；再点「复制照片」' : '❌ 复制失败，请手动复制下方文字')
+      })
+    }
+    if (copyPhoto) {
+      copyPhoto.onclick = function () {
+        WB.copyImage(draft._lastDataUrl || draft.avatar).then(function (ok) {
+          say(ok ? '✅ 照片已复制，去 WorkBuddy 粘贴发送' : '❌ 当前浏览器不支持复制图片，请点「下载照片」后手动发送')
+        })
+      }
+    }
+    if (downloadPhoto) {
+      downloadPhoto.onclick = function () {
+        var ok = WB.downloadImage(draft._lastDataUrl || draft.avatar)
+        say(ok ? '✅ 照片已下载，可发给 WorkBuddy' : '❌ 请先添加照片')
+      }
+    }
+    parseBtn.onclick = function () {
+      applyResult(WB.parseResult(answerEl ? answerEl.value : ''))
     }
   }
 
