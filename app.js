@@ -668,24 +668,80 @@
     toast('备份已生成，请保存到「文件」')
     render()
   }
-  function doImport() {
-    var input = document.createElement('input')
-    input.type = 'file'; input.accept = 'application/json,.json'
-    input.onchange = function () {
-      var f = input.files[0]
-      if (!f) return
-      var reader = new FileReader()
-      reader.onload = function (e) {
-        try {
-          var d = JSON.parse(e.target.result)
-          if (!Array.isArray(d.items) || !Array.isArray(d.records)) throw new Error('格式不对')
-          S = { items: d.items, records: d.records }
-          persist('导入备份').then(function () { toast('恢复成功'); render() })
-        } catch (err) { toast('文件格式不正确') }
-      }
-      reader.readAsText(f)
+  // 解析导入内容（支持直接是备份对象，或数组）
+  function parseImport(text) {
+    var d = JSON.parse(text)
+    if (!d || typeof d !== 'object') throw new Error('不是有效对象')
+    // 标准备份格式：{items, records}
+    if (Array.isArray(d.items) && Array.isArray(d.records)) return { items: d.items, records: d.records }
+    // 兼容：只有 items
+    if (Array.isArray(d.items) && !d.records) return { items: d.items, records: [] }
+    // 兼容：整个文件就是一个数组（花草列表）
+    if (Array.isArray(d)) return { items: d, records: [] }
+    throw new Error('缺少 items / records 字段')
+  }
+
+  // 展示导入预览并确认
+  function showImportPreview(data, sourceName) {
+    var names = (data.items || []).slice(0, 8).map(function (i) { return '· ' + esc(i.name || '(未命名)') }).join('<br>')
+    var more = (data.items || []).length > 8 ? '<br>… 等共 ' + data.items.length + ' 盆' : ''
+    var h = '<h3>确认导入</h3>' +
+      '<div class="muted">来源：' + esc(sourceName || '文件') + '</div>' +
+      '<div class="divider"></div>' +
+      '<div>花草：<b>' + data.items.length + '</b> 盆</div>' +
+      '<div>打卡记录：<b>' + data.records.length + '</b> 条</div>' +
+      (names ? '<div class="divider"></div><div class="muted">包含花草：</div><div style="line-height:1.8;margin-top:6px">' + names + more + '</div>' : '') +
+      '<div class="warn-banner" style="margin-top:14px">⚠️ 导入会<b>覆盖</b>当前所有数据。误操作可在「历史快照」恢复。</div>' +
+      '<div class="modal-actions"><button class="btn btn-ghost" data-act="close">取消</button>' +
+      '<button class="btn btn-primary" id="confirmImport">确认导入</button></div>'
+    showModal(h)
+    document.getElementById('confirmImport').onclick = function () {
+      S = { items: data.items, records: data.records }
+      closeModal()
+      persist('导入备份').then(function () { toast('✅ 导入成功：' + data.items.length + ' 盆花') })
     }
-    input.click()
+  }
+
+  function handleImportText(text, sourceName) {
+    try {
+      var data = parseImport(text)
+      showImportPreview(data, sourceName)
+    } catch (err) {
+      toast('解析失败：' + (err && err.message ? err.message : '格式不正确'))
+    }
+  }
+
+  function doImport() {
+    // 提供两种方式：选文件 / 粘贴文本
+    var h = '<h3>导入数据</h3>' +
+      '<div class="muted">选择别人发给你的 JSON 文件，或直接把文件内容粘贴进来。</div>' +
+      '<button class="btn btn-primary btn-block" id="importChooseFile" style="margin-top:14px">📂 选择 JSON 文件</button>' +
+      '<div class="divider"></div>' +
+      '<div class="muted" style="margin-bottom:8px">如果文件不好选（比如微信里打不开），可以长按文件用文本方式打开，把内容全选复制后粘贴到这里：</div>' +
+      '<textarea class="textarea" id="importPaste" placeholder="把 JSON 文件内容粘贴到这里…" style="min-height:120px"></textarea>' +
+      '<button class="btn btn-ghost btn-block" id="importPasteBtn" style="margin-top:8px">粘贴内容导入</button>' +
+      '<div class="modal-actions"><button class="btn btn-ghost" data-act="close">关闭</button></div>'
+    showModal(h)
+
+    document.getElementById('importChooseFile').onclick = function () {
+      var input = document.getElementById('importFile')
+      input.value = ''
+      input.onchange = function () {
+        var f = input.files[0]
+        if (!f) return
+        var reader = new FileReader()
+        reader.onload = function (e) {
+          handleImportText(e.target.result, f.name)
+        }
+        reader.onerror = function () { toast('读取文件失败，请改用粘贴方式') }
+        reader.readAsText(f)
+      }
+      input.click()
+    }
+    document.getElementById('importPasteBtn').onclick = function () {
+      var txt = document.getElementById('importPaste').value
+      handleImportText(txt, '粘贴内容')
+    }
   }
 
   // ---------- 渲染 ----------
